@@ -7,6 +7,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Context} from "@openzeppelin/contracts/utils/Context.sol";
 import { IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router01, IUniswapV2Router02 } from "./Interface.sol";
+import "hardhat/console.sol";
 
 contract SharePrawn is Context, IERC20, Ownable {
     using Address for address;
@@ -18,11 +19,11 @@ contract SharePrawn is Context, IERC20, Ownable {
      * rTotal: total amounts of reflection (plates)
      */
     uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 1000000000 * 10**6 * _decimals;
+    // _tTotal = 十億
+    uint256 private _tTotal = 1000000000 * _decimals;
     uint256 private _rTotal = (MAX - (MAX % _tTotal));
     
-    uint256 public _maxTxAmount = 5000000 * 10**6 * _decimals;
-    uint256 private minAmountForAddLiquidity = 500000 * 10**6 * _decimals;
+    uint256 private minAmountForAddLiquidity = 500 * _decimals;
     
     // tax fee for transfering token is 5%
     uint256 public _taxFee = 5;
@@ -75,7 +76,7 @@ contract SharePrawn is Context, IERC20, Ownable {
         // transfer all balance to owner
         _rOwned[_msgSender()] = _rTotal;
         
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F);
+        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
             .createPair(address(this), _uniswapV2Router.WETH());
 
@@ -162,19 +163,15 @@ contract SharePrawn is Context, IERC20, Ownable {
         require(amount > 0, "Transfer amount must be greater than zero");
         uint balanceFrom = balanceOf(from);
         require(balanceFrom >= amount, "ERC20: balance not enough");
-        if(from != owner() && to != owner())
-            require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
-        
         if(_isStackingAccount[from]) {
             //check current time is over the unlock stacking date or not
             require(block.timestamp >= _stackingUnlockTimeOf[from], "not allowed to transfer or swap until unlock stacking date");
             // 動用餘額的時候才會將該帳號從鎖倉玩家名單中剔除
             resetStacking(from);
         }
-
-        // 在 uniswap 上 swap token 時，uniswapPair 會呼叫我們的 transfer，利用 to == uniswapV2Pair 判斷他是賣出行為
+        // 在 uniswap 上 swap token 時，uniswapPair 會呼叫我們的 transfer，利用 from & to == uniswapV2Pair 判斷他是賣出行為
         // 每次在 Uniswap 上賣出會徵收 10% 的稅，其中 5% 會用來向 Uniswap 上的池子添加流動性，另外 5% 會分給代幣鎖倉的人
-        if(to == uniswapV2Pair) {
+        if(from == uniswapV2Pair && to == uniswapV2Pair) {
             uint rFee = _tokenTransfer(from,to,amount, true);
             uint tFee = convertReflectionToToken(rFee);
             uint feeForLiquify = tFee / 2;
@@ -360,6 +357,13 @@ contract SharePrawn is Context, IERC20, Ownable {
         uint256 currentRate =  _getRate();
         // convert reflection to tokens: rAmount * tSupply / rSupply
         return rAmount / currentRate;
+    }
+
+    function convertTokenToReflection(uint tAmount) public view returns (uint256) {
+        require(tAmount <= _tTotal, "Amount must be less than total token");
+        uint256 currentRate =  _getRate();
+        // convert reflection to tokens: rAmount * tSupply / rSupply
+        return tAmount * currentRate;
     }
     
     // to recieve ETH from uniswapV2Router when swaping
