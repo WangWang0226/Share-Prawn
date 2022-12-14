@@ -165,13 +165,17 @@ contract SharePrawn is Context, IERC20, Ownable {
         require(balanceFrom >= amount, "ERC20: balance not enough");
         if(_isStackingAccount[from]) {
             //check current time is over the unlock stacking date or not
-            require(block.timestamp >= _stackingUnlockTimeOf[from], "not allowed to transfer or swap until unlock stacking date");
+            require(block.timestamp >= _stackingUnlockTimeOf[from], "not allowed to transfer until unlock stacking date");
             // 動用餘額的時候才會將該帳號從鎖倉玩家名單中剔除
             resetStacking(from);
         }
-        // 在 uniswap 上 swap token 時，uniswapPair 會呼叫我們的 transfer，利用 from & to == uniswapV2Pair 判斷他是賣出行為
-        // 每次在 Uniswap 上賣出會徵收 10% 的稅，其中 5% 會用來向 Uniswap 上的池子添加流動性，另外 5% 會分給代幣鎖倉的人
-        if(from == uniswapV2Pair && to == uniswapV2Pair) {
+
+        /** 每次在 Uniswap 上賣出會徵收 10% 的稅，其中 5% 會用來向 Uniswap 上的池子添加流動性，另外 5% 會分給代幣鎖倉的人
+         * 判斷是不是賣出行為：在 uniswap 上 swap token 時，uniswapV2Router 會呼叫我們的 transfer，
+         * 可以用 to == uniswapV2Router 判斷他是 1.賣出 token 或 2.添加流動性兩種行為。
+         * 為了區分這兩種行為，再多設一個條件 from != address(this)，因為如果是添加流動性，from 一定是合約本身。
+         */
+        if(from != address(this) && to == uniswapV2Pair) {
             uint rFee = _tokenTransfer(from,to,amount, true);
             uint tFee = convertReflectionToToken(rFee);
             uint feeForLiquify = tFee / 2;
@@ -280,10 +284,10 @@ contract SharePrawn is Context, IERC20, Ownable {
                 delete _stackingAccounts[i];
             }
         }
-        
+
 		_stackingPeriodOf[account] = 0;
 		_isStackingAccount[account] = false;
-		totalStackingSum = totalStackingSum - balanceOf(account);
+		totalStackingSum = totalStackingSum - _stackingPeriodOf[account];
 		_stackingUnlockTimeOf[account] = 0;
     }
 

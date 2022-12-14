@@ -1,16 +1,29 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const uniswapV2RouterABI = require("../abi/UniswapV2RouterABI.json");
+
 
 describe("SharePrawnTest", function () {
     let owner, alice, bob, charlie, david;
 
     let sharePrawn;
-    before(async function () {
+    let uniswapV2Router;
+
+    async function getTokenBalance(address1, address2, address3) {
+        let balance1 = ethers.utils.formatUnits(await sharePrawn.balanceOf(address1), 18)
+        let balance2 = ethers.utils.formatUnits(await sharePrawn.balanceOf(address2), 18)
+        let balance3 = ethers.utils.formatUnits(await sharePrawn.balanceOf(address3), 18)
+        return [balance1, balance2, balance3]
+    } 
+
+    beforeEach(async function () {
         [owner, alice, bob, charlie, david] = await ethers.getSigners();
 
         const factory = await ethers.getContractFactory("SharePrawn", owner);
         sharePrawn = await factory.deploy();
         await sharePrawn.deployed();
+
+        uniswapV2Router = await ethers.getContractAt(uniswapV2RouterABI, '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D');
 
         // owner 有十億 token
         console.log("owner token balance", ethers.utils.formatUnits(await sharePrawn.balanceOf(owner.address), 18));
@@ -46,13 +59,19 @@ describe("SharePrawnTest", function () {
         await sharePrawn.connect(owner).transfer(charlie.address, ethers.utils.parseEther("30000"));
         console.log("Charlie token balance", ethers.utils.formatUnits(await sharePrawn.balanceOf(charlie.address), 18));
 
+        // owner 給 david 40000 顆 token
+        await sharePrawn.connect(owner).transfer(david.address, ethers.utils.parseEther("40000"));
+        console.log("David token balance", ethers.utils.formatUnits(await sharePrawn.balanceOf(david.address), 18));
+
+        // Alice, Bob 分別鎖倉 20 天與 30 天，Charlie 沒鎖倉
+        await sharePrawn.connect(alice).stacking(20);
+        await sharePrawn.connect(bob).stacking(30);
+
     })
 
     it("每次 Transfer 會徵收 5% 的稅，即時依照餘額比例分給所有持幣者", async function () {
 
-        let AliceBalance = ethers.utils.formatUnits(await sharePrawn.balanceOf(alice.address), 18);
-        let BobBalance = ethers.utils.formatUnits(await sharePrawn.balanceOf(bob.address), 18);
-        let charlieBalance = ethers.utils.formatUnits(await sharePrawn.balanceOf(charlie.address), 18);
+        let [aliceBalance, bobBalance, charlieBalance] = await getTokenBalance(alice.address, bob.address, charlie.address);
 
         // 發起交易
         // owner 給 david 40000 顆 token
@@ -60,16 +79,15 @@ describe("SharePrawnTest", function () {
         console.log("David token balance", ethers.utils.formatUnits(await sharePrawn.balanceOf(david.address), 18));
 
         // 檢查每個地址獲得的分潤量
-        let AliceBalanceAfter = ethers.utils.formatUnits(await sharePrawn.balanceOf(alice.address), 18);
-        let aliceShare = Math.round((AliceBalanceAfter - AliceBalance)*100000) / 100000
+        let [aliceBalanceAfter, bobBalanceAfter, charlieBalanceAfter] = await getTokenBalance(alice.address, bob.address, charlie.address);
+
+        let aliceShare = Math.round((aliceBalanceAfter - aliceBalance)*100000) / 100000
         console.log("Alice got share:", aliceShare); //0.019
 
-        let BobBalanceAfter = ethers.utils.formatUnits(await sharePrawn.balanceOf(bob.address), 18);
-        let bobShare = Math.round((BobBalanceAfter - BobBalance)*100000) / 100000
+        let bobShare = Math.round((bobBalanceAfter - bobBalance)*100000) / 100000
         console.log("Bob got share", bobShare);
         expect(bobShare).to.eq(0.038); // bob 持幣為 Alice 的兩倍，因此分潤也是兩倍
 
-        let charlieBalanceAfter = ethers.utils.formatUnits(await sharePrawn.balanceOf(charlie.address), 18);
         let charlieShare = Math.round((charlieBalanceAfter - charlieBalance)*100000) / 100000
         console.log("Charlie got share", charlieShare);
         expect(charlieShare).to.eq(0.057); // charlie 持幣為 Alice 的三倍，因此分潤也是三倍
@@ -92,7 +110,57 @@ describe("SharePrawnTest", function () {
     });
 
     it("每次在 Uniswap 上賣出會徵收 10% 稅，5% 向 Uniswap 添加流動性，另外 5% 分給鎖倉玩家", async function () {
+
+        let [aliceBalance, bobBalance, charlieBalance] = await getTokenBalance(alice.address, bob.address, charlie.address);
+        let contractBalanceBefore = ethers.utils.formatUnits(await sharePrawn.balanceOf(sharePrawn.address));
+
+        // getting timestamp
+        let block = await ethers.provider.getBlock(16182521);
+        let timestamp = block.timestamp;        
+        let ethAddress = await uniswapV2Router.WETH();
+        let swapAmount = ethers.utils.parseEther("1000"); 
+
+        await sharePrawn.connect(david).approve(uniswapV2Router.address, swapAmount);
+        // David 賣掉 1000 顆 token
+        await uniswapV2Router.connect(david).swapExactTokensForETHSupportingFeeOnTransferTokens(
+            swapAmount,
+            0, // accept any amount of ETH
+            [sharePrawn.address, ethAddress],
+            david.address,
+            timestamp + 300
+        );
+
+        // 檢查每次在 Uniswap 賣出後，合約有沒有收集到 1000*0.05 = 50 (該交易額的 5%)，之後要用於添加流動性。
+        let contractBalanceAfter = ethers.utils.formatUnits(await sharePrawn.balanceOf(sharePrawn.address));
+        expect(contractBalanceAfter - contractBalanceBefore).to.eq(50);
+
+        // 檢查每次在 Uniswap 賣出後，鎖倉玩家獲得的分潤，是不是與他們鎖倉時長成正比。
+        let [aliceBalanceAfter, bobBalanceAfter, charlieBalanceAfter] = await getTokenBalance(alice.address, bob.address, charlie.address);
         
+        // Alice 鎖倉 20 天，Bob 鎖倉 30 天 -> Alice 的份額是 2/5，Bob 的份額是 3/5，Charlie 沒鎖倉不會獲得分潤
+        expect(aliceBalanceAfter - aliceBalance).to.eq(50 * 2/5);
+        expect(bobBalanceAfter - bobBalance).to.eq(50 * 3/5);
+        expect(charlieBalanceAfter - charlieBalance).to.eq(0);
+
     });
+
+    it("鎖倉測試", async function () {
+
+        // alice 與 bob 鎖倉後不能進行轉帳
+        await expect(sharePrawn.connect(alice).transfer(charlie.address, 100000000)).to.be.revertedWith(
+            "not allowed to transfer until unlock stacking date",
+        )
+        await expect(sharePrawn.connect(bob).transfer(charlie.address, 100000000)).to.be.revertedWith(
+            "not allowed to transfer until unlock stacking date",
+        )
+
+        await ethers.provider.send("evm_increaseTime", [25 * 24 * 60 * 60]); 
+
+        // alice 已過鎖倉期限可以轉帳， 而 bob 還不能進行轉帳
+        await expect(sharePrawn.connect(alice).transfer(charlie.address, 100000000)).to.emit(sharePrawn, "Transfer")
+        await expect(sharePrawn.connect(bob).transfer(charlie.address, 100000000)).to.be.revertedWith(
+            "not allowed to transfer until unlock stacking date",
+        )
+    })
 
 });
