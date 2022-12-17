@@ -3,15 +3,13 @@ pragma solidity ^0.8.17;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Context} from "@openzeppelin/contracts/utils/Context.sol";
+import { Context } from "@openzeppelin/contracts/utils/Context.sol";
 import { IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router01, IUniswapV2Router02 } from "./Interface.sol";
 import "hardhat/console.sol";
 
 contract SharePrawn is Context, IERC20, Ownable {
     using Address for address;
-    using SafeERC20 for IERC20;
 
     uint private _decimals = 10**18;
     /**
@@ -373,7 +371,7 @@ contract SharePrawn is Context, IERC20, Ownable {
     // to recieve ETH from uniswapV2Router when swaping
     receive() external payable {}
 
-    //先乘後除問題注意，可以用 fullMath
+    //先乘後除可以用 fullMath，但該 library 要求 solidity >=0.4.0 <0.8.0 ，低於我們現有的版本。
     function getStackingShare(address account) public view returns (uint256){
 		//依照該 user 鎖倉時長，算出份額
 		uint256 currentRate =  _getRate();
