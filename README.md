@@ -1,13 +1,10 @@
 # Share Prawn
 
-## 簡介
-### SharePrawn 是一個分潤型代幣
-- 每次 Transfer 會徵收 5% 的稅，“即時” 依照餘額比例分給所有持幣者
-- 每次在 Uniswap 上賣出會徵收 10% 的稅，其中 5% 會用來向 Uniswap 上的池子添加流動性，另外 5% 會分給代幣鎖倉玩家
-- 用戶可以鎖倉代幣，一次鎖越久分潤比例越高
+## Introduction
+Share Prawn is a profit-sharing token inspired by the Safemoon implementation. Users can lock their tokens, and the longer they lock them, the higher their profit-sharing ratio. Each transfer incurs a 5% tax, which is immediately distributed to all token holders based on their balance through a burn mechanism. Selling tokens on Uniswap incurs a 10% tax, with 5% allocated to adding liquidity to the Uniswap liquidity pool and the remaining 5% distributed to users who have locked their tokens.
 
-### 鎖倉制度
-- 使用者可以自行決定鎖多久，以天為單位。
+### Staking System
+- Users can decide how long to stake, in units of days.
   ```solidity
     function stacking(uint n) public {
       _stackingAccounts.push(_msgSender());
@@ -17,14 +14,19 @@
       _stackingUnlockTimeOf[_msgSender()] = block.timestamp + n * 24 * 60 * 60;
     }
   ```
-- 到期之前不能賣出或轉帳。
-- 鎖倉期間，只要有人賣出代幣，就可以依照鎖倉時長獲得對應分潤
+- Tokens cannot be sold or transferred before the staking period expires.
+- During the staking period, whenever someone sells tokens, stakers receive corresponding profit-sharing based on their staking duration.
 
-## 測試項目
+## Test Cases
 
-- 每次 Transfer 會徵收 5% 的稅，“即時” 依照餘額比例分給所有持幣者
-    - 每次 transfer 發生後，檢查持幣者們的餘額是否依比例收到分潤
-- 每次在 Uniswap 上賣出會徵收 10% 的稅，其中 5% 會用來向 Uniswap 上的池子添加流動性，另外 5% 會分給代幣鎖倉的人
-    - 檢查每次在 Uniswap 賣出後，合約有沒有收集到該交易額的 5% ，之後要用於添加流動性。
-    - 檢查每次在 Uniswap 賣出後，鎖倉玩家獲得的分潤，是不是與他們鎖倉時長成正比。
-- 檢查鎖倉是否無法轉帳，以及過了鎖倉期限後，是否能順利轉帳。
+- A 5% tax is levied on each transfer, which is "immediately" distributed to all token holders based on their balance.
+    - After each transfer, check if the token holders' balances have received profit-sharing proportionately.
+- A 10% tax is levied on each sale on Uniswap, with 5% used to add liquidity to the Uniswap pool and the other 5% distributed to token stakers.
+    - Check if the contract collects 5% of the transaction amount after each sale on Uniswap for adding liquidity.
+    - Check if the profit-sharing received by stakers after each sale on Uniswap is proportional to their staking duration.
+- Check if staking prevents transfers and if transfers can be made smoothly after the staking period expires.
+
+## Technical Details
+This contract is designed to efficiently distribute token rewards through a reflection mechanism. It incorporates various features such as automatic tax collection on transactions, liquidity addition, and staking rewards.
+
+The reflection mechanism works by collecting a tax on each transaction and deducting this tax from the total reflection amount. This tax is then automatically distributed to all token holders based on their proportional holdings. Instead of updating each holder's reflection amount individually, the total reflection amount is adjusted, ensuring that each holder receives their fair share of the rewards based on their proportion of ownership, thereby improving efficiency and reducing gas fees.
